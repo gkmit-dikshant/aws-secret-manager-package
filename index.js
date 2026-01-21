@@ -13,7 +13,7 @@ class SecretManager {
       throw new Error("AWS SECRET ERROR: secret name or region is missing!");
     }
 
-    this.client = new SecretsManagerClient({
+    this.CLIENT = new SecretsManagerClient({
       region: this.REGION,
     });
   }
@@ -24,7 +24,7 @@ class SecretManager {
         SecretId: this.SECRET_NAME,
       });
 
-      const response = await client.send(command);
+      const response = await this.CLIENT.send(command);
       const secretString = JSON.parse(response.SecretString);
 
       let secrets = [];
