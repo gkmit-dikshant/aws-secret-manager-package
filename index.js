@@ -7,7 +7,7 @@ require("dotenv").config();
 
 class SecretManager {
   constructor() {
-    this.NODE_ENV = process.env.NODE_ENV;
+    this.NODE_ENV = process.env.NODE_ENV || "development";
     this.isProduction = process.env.NODE_ENV === "production";
     this.REGION = process.env.AWS_SECRET_REGION;
     this.ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
