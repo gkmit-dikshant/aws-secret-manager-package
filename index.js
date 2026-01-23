@@ -3,6 +3,8 @@ const {
   GetSecretValueCommand,
   ListSecretsCommand,
 } = require("@aws-sdk/client-secrets-manager");
+const RabbitMQClient = require("./RabbitMQClient");
+const RabbitMQManager = require("./RabbitMQManager");
 require("dotenv").config();
 
 class SecretManager {
@@ -94,4 +96,8 @@ class SecretManager {
   }
 }
 
-module.exports = { SecretManager: new SecretManager() };
+module.exports = {
+  SecretManager: new SecretManager(),
+  RabbitMQClient: RabbitMQClient,
+  RabbitMQManager: RabbitMQManager,
+};
