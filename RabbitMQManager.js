@@ -1,4 +1,4 @@
-const LRUCache = require("lru-cache");
+const { LRUCache } = require("lru-cache");
 const RabbitMQClient = require("./RabbitMQClient");
 
 /**
@@ -55,7 +55,7 @@ class RabbitMQManager {
     }
 
     if (!clientConfig) {
-      clientConfig = this.#loadClientConfig(clientId);
+      clientConfig = await this.#loadClientConfig(clientId);
     }
 
     if (!clientConfig) {
