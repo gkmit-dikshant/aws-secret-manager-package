@@ -117,7 +117,7 @@ class RabbitMQClient {
       return this.channel.nack(msg, false, false); // drop bad message
     }
 
-    const { messageId, content, destination } = payload;
+    const { messageId, content, destination, provider } = payload;
 
     let record;
     const transaction = await db.sequelize.transaction();
@@ -162,7 +162,11 @@ class RabbitMQClient {
       let msgData;
 
       if (service === "sms") {
-        msgData = { to: destination, message: content.message };
+        msgData = {
+          to: destination,
+          message: content.message,
+          provider: provider,
+        };
       } else if (service === "email") {
         msgData = {
           to: destination,
