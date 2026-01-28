@@ -182,7 +182,7 @@ class RabbitMQClient {
         throw new Error(`Unsupported service: ${service}`);
       }
 
-      await sender(msgData);
+      await sender(msgData, messageId);
 
       await db.Notification.update(
         { status: "sent" },
