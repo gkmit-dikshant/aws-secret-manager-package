@@ -174,7 +174,7 @@ class RabbitMQClient {
           html: content.body,
           from: content.fromEmail,
         };
-      } else if (service === "slack") {
+      } else if (service === "slack" || service === "slackbot") {
         msgData = { to: destination, message: content.message };
       }
 
