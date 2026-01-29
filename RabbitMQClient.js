@@ -177,6 +177,7 @@ class RabbitMQClient {
           bcc: content.bcc,
           attachments: content.attachments,
           fileId: content.fileId,
+          extension: content.extension,
         };
       } else if (service === "slack" || service === "slackbot") {
         msgData = { to: destination, message: content.message };
