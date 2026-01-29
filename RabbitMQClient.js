@@ -173,6 +173,10 @@ class RabbitMQClient {
           subject: content.subject,
           html: content.body,
           from: content.fromEmail,
+          cc: content.cc,
+          bcc: content.bcc,
+          attachments: content.attachments,
+          fileId: content.fileId,
         };
       } else if (service === "slack" || service === "slackbot") {
         msgData = { to: destination, message: content.message };
@@ -182,10 +186,10 @@ class RabbitMQClient {
         throw new Error(`Unsupported service: ${service}`);
       }
 
-      await sender(msgData, messageId);
+      const result = await sender(msgData, messageId);
 
       await db.Notification.update(
-        { status: "sent" },
+        { status: "sent", connectorResponse: result },
         { where: { messageId } },
       );
 
