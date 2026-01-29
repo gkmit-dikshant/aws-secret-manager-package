@@ -189,7 +189,7 @@ class RabbitMQClient {
       const result = await sender(msgData, messageId);
 
       await db.Notification.update(
-        { status: "sent", connectorResponse: result },
+        { status: "sent", connectorResponse: JSON.stringify(result) },
         { where: { messageId } },
       );
 
