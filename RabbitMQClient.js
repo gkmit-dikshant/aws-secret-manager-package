@@ -40,11 +40,14 @@ class RabbitMQClient {
       throw new Error(`No RabbitMQ config for service ${serviceType}`);
     }
 
-    const { EXCHANGE_NAME, EXCHANGE_TYPE, ROUTING_KEY } = rabbitConfig;
+    const { EXCHANGE_NAME, EXCHANGE_TYPE, ROUTING_KEY, QUEUE_NAME } =
+      rabbitConfig;
 
     await this.channel.assertExchange(EXCHANGE_NAME, EXCHANGE_TYPE, {
       durable: true,
     });
+
+    await this.channel.assertQueue(QUEUE_NAME, { durable: true });
 
     this.logger.info(
       `Publishing → exchange=${EXCHANGE_NAME}, routingKey=${ROUTING_KEY}`,
