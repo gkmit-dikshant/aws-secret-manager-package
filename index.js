@@ -16,6 +16,7 @@ class SecretManager {
     this.REGION = process.env.AWS_SECRET_REGION;
     this.ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
     this.SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
+    this.SECRET_NAME = process.env.AWS_SECRET_NAME;
 
     if (
       !this.isProduction &&
@@ -48,8 +49,16 @@ class SecretManager {
 
       let secrets = [];
 
+      const filtered = SecretList.filter((secret) =>
+        secret.Name?.startsWith(this.SECRET_NAME),
+      );
+
+      if (filtered.length === 0) {
+        throw new Error(`No secrets found with prefix: ${prefix}`);
+      }
+
       secrets = await Promise.all(
-        SecretList.map(async (secret) => {
+        filtered.map(async (secret) => {
           const { SecretString } = await this.CLIENT.send(
             new GetSecretValueCommand({ SecretId: secret.Name }),
           );
