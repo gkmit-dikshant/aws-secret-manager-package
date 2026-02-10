@@ -54,7 +54,7 @@ class SecretManager {
       );
 
       if (filtered.length === 0) {
-        throw new Error(`No secrets found with prefix: ${prefix}`);
+        throw new Error(`No secrets found with prefix: ${this.SECRET_NAME}`);
       }
 
       secrets = await Promise.all(
