@@ -1,179 +1,261 @@
-# AWS Secret Manager Package
+# universal_notification_support_lib
 
-A lightweight utility for managing and retrieving AWS Secrets Manager secrets in Node.js applications. This package simplifies access to secrets stored in AWS Secrets Manager for the universal-notifier ecosystem.
+A small CommonJS utility that exposes helpers to read AWS Secrets Manager secrets and lightweight RabbitMQ helpers used by the universal-notifier ecosystem.
+
+This package exports a ready-made `SecretManager` instance and the `RabbitMQClient` and `RabbitMQManager` classes so you can integrate secrets + RabbitMQ clients consistently.
 
 ## Features
 
-- Easy retrieval of secrets from AWS Secrets Manager
-- Environment-based configuration
-- Automatic JSON parsing of secrets
-- Error handling and validation
-- CommonJS module support
+- Retrieve and parse secrets from AWS Secrets Manager (environment-scoped)
+- Lightweight RabbitMQ client (publish/consume) and a caching manager for reusing clients
+- CommonJS-friendly (exports via `module.exports`)
 
 ## Installation
 
 ```bash
-npm install @universal-notifier/secret-manager
+npm install universal_notification_support_lib
 ```
 
-## Prerequisites
+You can also install directly from GitHub:
 
-- AWS Account with Secrets Manager access
-- AWS credentials configured (via IAM role, environment variables, or AWS config file)
-- Node.js 14.x or higher
-- A secret stored in AWS Secrets Manager
+```bash
 
-## Setup
+# Or install via the git url
+npm install git+https://github.com/msshahanshah/universal_notification_support_lib.git
 
-### 1. Environment Variables
-
-Create a `.env` file in your project root with the following variables:
-
-```env
-AWS_SECRET_NAME=your-secret-name
-AWS_SECRET_REGION=us-east-1
+# Install a specific branch or tag
+npm install git+https://github.com/msshahanshah/universal_notification_support_lib.git#main
 ```
 
-- `AWS_SECRET_NAME`: The name or ARN of your secret in AWS Secrets Manager
-- `AWS_SECRET_REGION`: The AWS region where your secret is stored (e.g., `us-east-1`, `eu-west-1`)
+## What this package exports
 
-### 2. AWS Credentials
+- `SecretManager` — an instantiated helper (require and call methods directly)
+- `RabbitMQClient` — class, small AMQP client with `publishMessage`, `consume`, and `close`
+- `RabbitMQManager` — class that caches `RabbitMQClient` instances and provides `getClient`, `close`, and `closeAll`
 
-Ensure your AWS credentials are configured. You can:
-
-- Use IAM roles (recommended for production)
-- Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables
-- Use `~/.aws/credentials` file
-- Use AWS SSO
-
-## Usage
-
-### Basic Example
+Require the package like:
 
 ```javascript
-const { SecretManager } = require("@universal-notifier/secret-manager");
-
-async function fetchSecrets() {
-  try {
-    const secrets = await SecretManager.getSecrets();
-    console.log(secrets);
-  } catch (error) {
-    console.error("Failed to fetch secrets:", error.message);
-  }
-}
-
-fetchSecrets();
+const {
+  SecretManager,
+  RabbitMQClient,
+  RabbitMQManager,
+} = require("universal_notification_support_lib");
 ```
 
-## Secret Format
+## Environment variables
 
-Secrets stored in AWS Secrets Manager should follow this structure:
+- `AWS_SECRET_NAME` — prefix used when listing secrets (the code filters secret names starting with this value)
+- `AWS_SECRET_REGION` — AWS region for Secrets Manager (required)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` — required in non-production environments (the package will throw if missing in development)
+- `NODE_ENV` — defaults to `development`; `production` or `staging` toggles credential usage
+
+Create a `.env` (for local/dev) and load it before requiring the package (this package calls `dotenv` internally, but ensure your env is set correctly):
+
+```env
+AWS_SECRET_NAME=your-secret-prefix
+AWS_SECRET_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+NODE_ENV=development
+```
+
+Note: secret retrieval is environment-scoped — `SecretManager.getSecrets()` defaults to `process.env.NODE_ENV` and will return the parsed value stored under that environment key in each secret. For example, if `NODE_ENV=development` the package will parse and return the `development` object from each secret's JSON payload.
+
+## Secret format
+
+This package expects each secret's `SecretString` to be a JSON object whose top-level keys are environment names (for example `development`, `production`, `staging`). Each environment key's value should be a JSON string containing your service configuration. At runtime the package will:
+
+1. list secrets and filter names that start with `AWS_SECRET_NAME`
+2. fetch each secret's `SecretString`
+3. parse the outer JSON, then parse the string stored for the requested environment (based on `NODE_ENV`)
+
+Example of a single secret's `SecretString` stored in AWS Secrets Manager:
 
 ```json
 {
-  "secret_key_1": "{\"username\": \"user1\", \"password\": \"pass1\"}",
-  "secret_key_2": "{\"api_key\": \"key123\", \"api_secret\": \"secret456\"}"
+  "ID": "CLIENT",
+  "SERVER_PORT": 3001,
+  "ENABLED_SERVERICES": ["slack", "email", "sms"],
+  "SLACKBOT": {
+    "TOKEN": "xoxb-",
+    "RABBITMQ": {
+      "EXCHANGE_NAME": "notifications_exchange",
+      "EXCHANGE_TYPE": "direct",
+      "QUEUE_NAME": "CLIENT.slackbot_queue",
+      "ROUTING_KEY": "slack"
+    }
+  },
+  "EMAIL": {
+    "AWS": {
+      "default": true,
+      "USER_NAME": "AKXXXX",
+      "PASSWORD": "BGFkXXXX",
+      "SENDER_EMAIL": "tes@gmail.com",
+      "REGION": "us-east-1"
+    },
+    "MAILGUN": {
+      "API_KEY": "xxxx",
+      "DOMAIN": "xxxx"
+    },
+    "RABBITMQ": {
+      "EXCHANGE_NAME": "notifications_exchange",
+      "EXCHANGE_TYPE": "direct",
+      "QUEUE_NAME": "CLIENT.email_queue",
+      "ROUTING_KEY": "email"
+    }
+  },
+  "SMS": {
+    "TWILIO": {
+      "default": true,
+      "ACCOUNT_SID": "ACXXXX",
+      "AUTH_TOKEN": "XXXX",
+      "FROM_NUMBER": "+111111111"
+    },
+    "RABBITMQ": {
+      "EXCHANGE_NAME": "notifications_exchange",
+      "EXCHANGE_TYPE": "direct",
+      "QUEUE_NAME": "CLIENT.sms_queue",
+      "ROUTING_KEY": "sms"
+    }
+  },
+  "DBCONFIG": {
+    "HOST": "localhost",
+    "PORT": 5432,
+    "NAME": "notifications_db",
+    "USER": "dikshant",
+    "PASSWORD": "postgres"
+  },
+  "RABBITMQ": {
+    "HOST": "localhost",
+    "PORT": 5672,
+    "USER": "guest",
+    "PASSWORD": "guest",
+    "EXCHANGE_NAME": "notifications_exchange",
+    "EXCHANGE_TYPE": "direct",
+    "QUEUE_NAME": "notifications_queue",
+    "ROUTING_KEY": "notifications"
+  }
 }
 ```
 
-Each value should be a JSON string that will be automatically parsed by the package.
+When `SecretManager.getSecrets()` runs with `NODE_ENV=development` it will return the parsed object for the `development` key. For example (after parsing) the returned object for the `development` environment would look like:
+
+```json
+{
+  "ID": "GKMIT",
+  "SERVER_PORT": 3001,
+  "ENABLED_SERVERICES": ["slack", "email", "sms"],
+  "SLACKBOT": {
+    "TOKEN": "xoxb-",
+    "RABBITMQ": {
+      /* ... */
+    }
+  },
+  "EMAIL": {
+    /* ... */
+  },
+  "SMS": {
+    /* ... */
+  },
+  "DBCONFIG": {
+    /* ... */
+  },
+  "RABBITMQ": {
+    /* ... */
+  }
+}
+```
+
+Note: the example preserves the key `ENABLED_SERVERICES` as used in the configuration shown above. If your project uses a different key name (for example `ENABLED_SERVICES`) update your secrets accordingly.
 
 ## API Reference
 
-### `SecretManager.getSecrets()`
+### SecretManager
 
-Retrieves all secrets from AWS Secrets Manager.
+- `SecretManager.getSecrets(environment = process.env.NODE_ENV || 'development')`
+  - Returns: `Promise<Array>` — an array of parsed secret objects for the requested environment
+  - Throws if region/credentials are missing (per environment), if no matching secrets are found, or on AWS API errors
 
-**Returns:** `Promise<Array>` - Array of parsed secret objects
+- `SecretManager.getSecret(name, environment = process.env.NODE_ENV || 'development')`
+  - Behavior: validates and fetches a single secret by name and will throw if the secret or the environment-specific key is missing. (Note: in the current implementation this method validates but does not return the parsed secret object.)
 
-**Throws:**
-
-- Error if secret name or region is not configured
-- Error if no secrets are found
-- Error if AWS API request fails
-
-**Example:**
+Example — read all secrets for the current environment:
 
 ```javascript
-try {
+const { SecretManager } = require("universal_notification_support_lib");
+
+async function load() {
   const secrets = await SecretManager.getSecrets();
-  const firstSecret = secrets[0];
-  console.log(firstSecret);
-} catch (error) {
-  console.error("Failed to get secrets:", error);
+  // secrets is an array of parsed objects for the current NODE_ENV
+  console.log(secrets);
 }
+
+load().catch((err) => console.error(err));
 ```
 
-## Error Handling
+### RabbitMQClient
 
-The package includes built-in error handling:
+Construct with an object: `{ url, config, logger = console }` where `config` is the client configuration that includes `.RABBITMQ` per service key.
 
-| Error                                                 | Cause                         | Solution                                                |
-| ----------------------------------------------------- | ----------------------------- | ------------------------------------------------------- |
-| "AWS SECRET ERROR: secret name or region is missing!" | Missing environment variables | Set `AWS_SECRET_NAME` and `AWS_SECRET_REGION` in `.env` |
-| "No Client Found!"                                    | Secret contains no data       | Ensure secret has content in AWS Secrets Manager        |
-| Network/AWS errors                                    | AWS API connection issues     | Check AWS credentials and region                        |
+Key methods:
 
-## Examples
+- `connect()` — open connection & channel
+- `publishMessage(serviceType, message)` — publish JSON message to the exchange/queue configured for `serviceType`
+- `consume({ service, sender, db, maxProcessAttemptCount = 3 })` — start consuming messages; `sender` is an async function that actually sends the notification (e.g., call to SMTP/SMS connector). The client will update the DB `Notification` record status and attempts. Expects `db` to have `Notification` model and `sequelize` instance for transactions.
+- `close()` — cleanly close consumer/channel/connection
 
-### Initialization Pattern
+The `publishMessage` and `consume` methods expect your configuration to include exchange/queue/routing keys under the service key (uppercased) and `RABBITMQ` object with `EXCHANGE_NAME`, `EXCHANGE_TYPE`, `ROUTING_KEY`, `QUEUE_NAME`.
+
+Example (publish):
 
 ```javascript
-const { SecretManager } = require("@universal-notifier/secret-manager");
-
-let cachedSecrets = null;
-
-async function initializeSecrets() {
-  try {
-    cachedSecrets = await SecretManager.getSecrets();
-    console.log("Secrets loaded successfully");
-  } catch (error) {
-    console.error("Failed to initialize secrets:", error);
-    process.exit(1);
-  }
-}
-
-module.exports = { initializeSecrets, getSecrets: () => cachedSecrets };
+const client = new RabbitMQClient({
+  url: "amqp://user:pass@host:5672",
+  config: myConfig,
+});
+await client.connect();
+await client.publishMessage("email", {
+  messageId: "123",
+  content: {
+    /* ... */
+  },
+});
+await client.close();
 ```
 
-## Best Practices
+Example (consume):
 
-1. **Never commit `.env` files** - Add `.env` to your `.gitignore`
-2. **Use IAM roles in production** - Avoid hardcoding credentials
-3. **Rotate secrets regularly** - Update secrets in AWS Secrets Manager periodically
-4. **Handle errors gracefully** - Always wrap `getSecrets()` in try-catch blocks
-5. **Cache secrets** - Consider caching results to reduce API calls
-6. **Use appropriate AWS regions** - Ensure the region matches where your secret is stored
-7. **Restrict IAM permissions** - Give only `secretsmanager:GetSecretValue` permission to the secret
+```javascript
+await client.consume({
+  service: "email",
+  sender: async (msgData, messageId) => {
+    // implement sending via connector (SMTP, SMS provider, etc.)
+    return { ok: true };
+  },
+  db: myDbInstance,
+});
+```
+
+### RabbitMQManager
+
+Constructor: `new RabbitMQManager(fetchConfigsCallback, logger = console)`
+
+- `fetchConfigsCallback()` should return a promise resolving to an array of client configs (each with `ID` and `RABBITMQ` settings)
+- `getClient(clientId)` — returns a cached `RabbitMQClient` (creates and caches it if missing)
+- `close(clientId)` — closes and evicts a single cached client
+- `closeAll()` — closes and clears all cached clients
+
+This manager uses an LRU cache to evict idle clients and closes them cleanly.
+
+## Error handling & notes
+
+- The package throws if required environment variables are missing (region, and for non-production, access key/secret)
+- `SecretManager.getSecret` validates existence but currently does not return the parsed secret — use `getSecrets` to retrieve parsed secrets as an array. Consider calling `getSecret` only to validate presence or update it to return the parsed secret.
+- The RabbitMQ client expects a Sequelize `db` with `Notification` model when consuming so it can update notification state.
 
 ## Troubleshooting
 
-### "Secret name or region is missing!"
-
-- Verify `.env` file exists in the project root
-- Check that `AWS_SECRET_NAME` and `AWS_SECRET_REGION` are set
-- Ensure `dotenv` is loading before instantiating SecretManager
-
-### "No Client Found!"
-
-- Verify the secret exists in AWS Secrets Manager
-- Check that the secret has content
-- Confirm you're using the correct secret name
-
-### Authentication Errors
-
-- Verify AWS credentials are properly configured
-- Check IAM permissions include `secretsmanager:GetSecretValue`
-- Ensure the region is correct
-
-## License
-
-ISC
-
-## Author
-
-Dikshant Sharma
-
-## Support
-
-For issues or questions, visit: https://github.com/gkmit-dikshant/aws-secret-manager-package
+- "region is missing" or credential errors: verify `AWS_SECRET_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` (or use IAM role in production)
+- "No secrets found with prefix": ensure `AWS_SECRET_NAME` matches the secret name prefix used in Secrets Manager
+- RabbitMQ connection errors: verify `HOST`, `PORT`, `USER`, and `PASSWORD` in your client config and that the broker is reachable
