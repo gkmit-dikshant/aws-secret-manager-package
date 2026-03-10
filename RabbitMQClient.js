@@ -112,6 +112,7 @@ class RabbitMQClient {
   async processMessage({ service, msg, sender }, db, maxProcessAttemptCount) {
     if (!msg) return;
 
+    // Parsing payload
     let payload;
     try {
       payload = JSON.parse(msg.content.toString());
@@ -122,98 +123,76 @@ class RabbitMQClient {
 
     const { messageId, content, destination, provider } = payload;
 
+    // database processing for notification messages
     let record;
-    const transaction = await db.sequelize.transaction();
+    if (db) {
+      const transaction = await db.sequelize.transaction();
+      try {
+        record = await db.Notification.findOne({
+          where: { messageId },
+          lock: transaction.LOCK.UPDATE,
+          transaction,
+        });
 
-    try {
-      record = await db.Notification.findOne({
-        where: { messageId },
-        lock: transaction.LOCK.UPDATE,
-        transaction,
-      });
+        if (!record) {
+          await transaction.commit();
+          return this.channel.nack(msg, false, false);
+        }
 
-      if (!record) {
+        if (record.status === "sent") {
+          await transaction.commit();
+          return this.channel.ack(msg);
+        }
+
+        if (
+          record.status === "failed" &&
+          record.attempts >= maxProcessAttemptCount
+        ) {
+          await transaction.commit();
+          return this.channel.ack(msg);
+        }
+
+        record.status = "processing";
+        record.attempts += 1;
+        await record.save({ transaction });
+
         await transaction.commit();
-        return this.channel.nack(msg, false, false);
+      } catch (err) {
+        await transaction.rollback();
+        this.logger.error("DB transaction failed", err);
+        return this.channel.nack(msg, false, true);
       }
-
-      if (record.status === "sent") {
-        await transaction.commit();
-        return this.channel.ack(msg);
-      }
-
-      if (
-        record.status === "failed" &&
-        record.attempts >= maxProcessAttemptCount
-      ) {
-        await transaction.commit();
-        return this.channel.ack(msg);
-      }
-
-      record.status = "processing";
-      record.attempts += 1;
-      await record.save({ transaction });
-
-      await transaction.commit();
-    } catch (err) {
-      await transaction.rollback();
-      this.logger.error("DB transaction failed", err);
-      return this.channel.nack(msg, false, true);
     }
 
+    // message processing
     try {
-      let msgData;
+      const result = await sender(payload, messageId);
 
-      if (service === "sms") {
-        msgData = {
-          to: destination,
-          message: content.message,
-          provider: provider,
-        };
-      } else if (service === "email") {
-        msgData = {
-          to: destination,
-          subject: content.subject,
-          html: content.body,
-          from: content.fromEmail,
-          cc: content.cc,
-          bcc: content.bcc,
-          attachments: content.attachments,
-          fileId: content.fileId,
-          extension: content.extension,
-          provider: provider,
-        };
-      } else if (service === "slack" || service === "slackbot") {
-        msgData = { to: destination, message: content.message };
+      if (db) {
+        // update message status
+        await db.Notification.update(
+          { status: "sent", connectorResponse: JSON.stringify(result) },
+          { where: { messageId } },
+        );
       }
-
-      if (!msgData) {
-        throw new Error(`Unsupported service: ${service}`);
-      }
-
-      const result = await sender(msgData, messageId);
-
-      await db.Notification.update(
-        { status: "sent", connectorResponse: JSON.stringify(result) },
-        { where: { messageId } },
-      );
 
       return this.channel.ack(msg);
     } catch (err) {
       this.logger.error("Message send failed", err);
+      if (db) {
+        // update message status
+        await db.Notification.update(
+          {
+            status: "failed",
+            connectorResponse: err.message,
+          },
+          { where: { messageId } },
+        );
 
-      await db.Notification.update(
-        {
-          status: "failed",
-          connectorResponse: err.message,
-        },
-        { where: { messageId } },
-      );
-
-      if (record.attempts >= maxProcessAttemptCount) {
-        return this.channel.ack(msg);
+        if (record.attempts >= maxProcessAttemptCount) {
+          return this.channel.ack(msg);
+        }
       }
-
       return this.channel.nack(msg, false, true);
     }
   }
