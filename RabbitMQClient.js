@@ -178,13 +178,21 @@ class RabbitMQClient {
 
       return this.channel.ack(msg);
     } catch (err) {
+      const errorMessage =
+        err?.message ||
+        err?.errorMessage ||
+        err?.details ||
+        err?.description ||
+        err?.reason ||
+        err?.error ||
+        JSON.stringify(err);
       this.logger.error("Message send failed", err);
       if (db) {
         // update message status
         await db.Notification.update(
           {
             status: "failed",
-            connectorResponse: err.message,
+            connectorResponse: errorMessage,
           },
           { where: { messageId } },
         );
